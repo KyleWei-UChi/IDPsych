@@ -2,7 +2,7 @@
 increment/decrement (Inc/Dec) detection task (Wei, Mitchell & Maunsell, 2023,
 J Vis)."""
 
-from . import calc, dataIO, vis
+from . import calc, cohorts, dataIO, vis
 
-__version__ = "2.0.0"
-__all__ = ["calc", "dataIO", "vis"]
+__version__ = "2.1.0"
+__all__ = ["calc", "cohorts", "dataIO", "vis"]

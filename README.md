@@ -17,8 +17,8 @@ pip install -e .          # from this folder
 pip install -e ".[dev]"   # also installs pytest and jupyter
 ```
 
-Requires Python 3.9+. Dependencies: numpy, scipy, matplotlib, seaborn,
-pymatreader.
+Requires Python 3.9+. Dependencies: numpy, scipy, pandas, matplotlib,
+seaborn, pymatreader.
 
 ## Data layout
 
@@ -63,13 +63,36 @@ Threshold can be computed three ways (`method=` in `allSubjectDict`):
 | 1 | mean of the last `last` trials |
 | 2 | mean of the last `lastRev` staircase reversals |
 
-See `notebooks/example.ipynb` for a full walk-through.
+See `notebooks/example.ipynb` for a quick start and
+`notebooks/paper_figures.ipynb` to reproduce the figures in the paper.
+
+## Reproducing the paper figures
+
+The package ships the per-session thresholds estimated with psignifit
+(MATLAB) that the published Fig 2 and Sup Fig 1 are based on, so those
+figures and the learning-effect analysis run without the raw data:
+
+```python
+from IDPsych import calc, cohorts, dataIO, vis
+
+psig = dataIO.loadPsignifit("33ms")          # {sj: {taskMode, thresholdPC}}
+calc.subjectSummary(psig)                     # mean, SEM, Dec/Inc ratio per subject
+vis.thresholdScatter(psig, saveTo="Fig2.pdf")  # Fig 2
+calc.learningTable(psig)                      # exponential fit per subject
+vis.learningAverage(psig)
+```
+
+Cohorts (`cohorts.COHORTS`): `100ms` (dot life 100 ms, 2.5 dots/deg²),
+`33ms` (33 ms, 5 dots/deg², main dataset), `control` (increment-only
+sessions with a lowered baseline).
 
 ## Modules
 
 - `dataIO` – read `.mat` sessions, certify trials, build the subject dictionary, save/load JSON
-- `calc` – hit rate, threshold, reversal detection
-- `vis` – threshold scatter, hit-rate histogram, right-bias violin plot
+- `calc` – hit rate, threshold, reversal detection, per-subject summary, exponential learning-curve fits
+- `cohorts` – subject groups and their stimulus parameters
+- `vis` – paper-style figures: threshold scatter, learning curves, hit-rate histogram, right-bias violin plot
+- `data/psignifit_thresholds.json` – psignifit thresholds used in the paper
 
 ## Tests
 
@@ -77,4 +100,4 @@ See `notebooks/example.ipynb` for a full walk-through.
 pytest
 ```
 
-The tests use small synthetic staircases, so they run without the raw data.
+The tests use small synthetic staircases and the packaged psignifit data, so they run without the raw .mat files.

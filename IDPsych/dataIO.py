@@ -205,3 +205,47 @@ def _jsonDefault(obj):
     if isinstance(obj, np.generic):
         return obj.item()
     raise TypeError("cannot serialize %r" % type(obj))
+
+
+# --------------------------------------------------------------------------
+# psignifit thresholds shipped with the package
+# --------------------------------------------------------------------------
+
+_PSIG_FILE = Path(__file__).parent / "data" / "psignifit_thresholds.json"
+
+
+def loadPsignifit(cohort):
+    """
+    Per-session thresholds estimated with psignifit (MATLAB), stored in
+    IDPsych/data/psignifit_thresholds.json, returned in the same shape
+    as allSubjectDict so that calc and vis functions work on them:
+
+        {sj: {'taskMode': [1]*nInc + [0]*nDec,
+              'thresholdPC': incThresholds + decThresholds}}
+
+    :param cohort: '100ms' or '33ms'
+    """
+    with open(_PSIG_FILE) as f:
+        raw = json.load(f)
+    if cohort not in raw or cohort.startswith("_"):
+        raise KeyError("no psignifit data for cohort %r" % cohort)
+    out = {}
+    for sj, d in raw[cohort].items():
+        inc, dec = d["threshIncPC"], d["threshDecPC"]
+        out[sj] = {
+            "taskMode": [1] * len(inc) + [0] * len(dec),
+            "thresholdPC": list(inc) + list(dec),
+        }
+    return out
+
+
+def fromThresholds(inc, dec):
+    """
+    Builds a one-subject data dictionary from explicit Inc and Dec
+    threshold lists, for figures that pair sessions across cohorts
+    (e.g. the control comparison).
+    """
+    return {
+        "taskMode": [1] * len(inc) + [0] * len(dec),
+        "thresholdPC": list(inc) + list(dec),
+    }

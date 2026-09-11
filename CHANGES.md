@@ -1,4 +1,23 @@
-# Changes from the 2022 version (setup.py 1.1.1) to 2.0.0
+# 2.1.0 — paper figures integrated
+
+Merges the pre-package `IDPsychFigures.ipynb` into the package.
+
+New
+- `cohorts.py`: subject groups (100ms, 33ms, control) with stimulus parameters
+- `IDPsych/data/psignifit_thresholds.json`: the psignifit thresholds that were pasted as literals in the notebook; loaded with `dataIO.loadPsignifit(cohort)` into the same shape as `allSubjectDict` output
+- `dataIO.fromThresholds(inc, dec)`: build a data entry from explicit lists (control figure)
+- `calc.splitByTaskMode`, `calc.subjectSummary` (mean/SEM/ratio, dict or DataFrame), `calc.fitExp`, `calc.learningCurve`, `calc.learningTable`
+- `vis.thresholdScatter` (Fig 2 / Sup Fig 1 style, per-subject `style` overrides), `vis.thresholdScatterColored`, `vis.learningAverage`, `vis.learningNormalized`, `vis.learningBySubject`, `vis.paperStyle` context manager
+- `notebooks/paper_figures.ipynb`: reproduces every figure from the old notebook; psignifit-based cells run without raw data
+- 4 more tests (12 total); one checks the published ~2x Dec/Inc ratio from the shipped data
+
+Changed
+- `vis` default style is now the paper style (Helvetica/Arial fallback, 14 pt, unrotated y-labels, 1 SEM error bars). The 2022 look (`#fbfbfb` background, serif, 2 SEM, marginal histograms) is gone; `vis.IDscat` is kept as an alias of `thresholdScatter`
+- `hitRateHist` and `rBias` use the paper colors
+- `pandas` added as a dependency; `package-data` added so the JSON ships with `pip install`
+- `.gitignore` exception for `IDPsych/data/*.json`
+
+# 2.0.0 — changes from the 2022 version (setup.py 1.1.1)
 
 Packaging
 - `setup.py` replaced by `pyproject.toml`; stray imports and the `statistics` pseudo-dependency removed; Bitbucket URL removed
