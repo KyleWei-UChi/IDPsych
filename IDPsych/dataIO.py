@@ -1,142 +1,207 @@
-from pymatreader import read_mat
-import numpy as np
-import os
+"""Loading session .mat files and building the per-subject data dictionary."""
+
 import json
+from pathlib import Path
+
+import numpy as np
+from pymatreader import read_mat
+
 from IDPsych import calc
 
-def allSubjectDict(sjID):
-    '''
-    Creates a master dictionary containing all subjects' data
-    (calls loadMatFilePyMat to load data files from individual subject)
-    :param sjID: specifies which subjects are used for data analysis 
-    '''
-    allSubject = {}
-    for sj in sjID:
-        allSubject[sj] = loadMatFilePyMat(sj)
-    return allSubject
-    
 
-def loadMatFilePyMat(sj, elim = 10, method = 0, last = 10, lastRev = 6):
-    '''
-    Loads the given matfile and assigns variables to access trial data.
-    Returns a dictionary containing:
-        1. Task settings
-        2. Behavioral settings
-        3. Dot settings
-        4. Trials data 
-    :param sj: specifies which subject's data files are loaded
-    :param elim: specifies how many certified trials are eliminated at the 
-                 beginning when calculating the hit rate (0 by default)
-    :param method: use which method to calculate threshold (0, 1, or 2)
-    :param last: specifies how many trials are used to average in method 1
-    :param lastRev: specifies how many reversals are used to average in method 2
-    '''
-    
-    os.chdir(os.getcwd() + '/' + sj)
-    
-    fileList = [name for name in os.listdir() if (name.endswith('.mat') and ('Info' not in name))]
-    fileList.sort()
-    # Get the unique dates
-    fileListDate = list(set([fileList[d][:10] for d in range(len(fileList))]))
-    fileListDate.sort()
-    
-    sjData = {'fileName': fileList,
-              'nTrials': [],
-              'taskMode': [],
-              'stairType': [],
-              'frameRateHz': [],
-              'baseCohPC': [],
-              'behavSettings': [],
-              'dotSettings': [],
-              'trials': [],
-              'rightBiasPC': [],
-              'thresholdPC': [],
-              'hitRatePC': [],
-              'dayOfExp': []}
-    
+def allSubjectDict(dataDir, sjID, **kwargs):
+    """
+    Master dictionary with every subject's data, keyed by subject ID.
+
+    :param dataDir: folder that contains one sub-folder per subject
+    :param sjID: iterable of subject IDs (strings matching the folder names)
+    :param kwargs: passed through to loadSubject (elim, method, last, lastRev)
+    """
+    dataDir = Path(dataDir)
+    return {sj: loadSubject(dataDir / sj, **kwargs) for sj in sjID}
+
+
+def listSessionFiles(sjDir):
+    """Sorted list of session .mat files in a subject folder (skips *Info*.mat)."""
+    sjDir = Path(sjDir)
+    if not sjDir.is_dir():
+        raise FileNotFoundError("subject folder not found: %s" % sjDir)
+    return sorted(
+        f for f in sjDir.iterdir() if f.suffix == ".mat" and "Info" not in f.name
+    )
+
+
+def loadSubject(sjDir, elim=10, method=0, last=10, lastRev=6):
+    """
+    Loads every session file for one subject and computes per-session
+    summaries. Returns a dictionary of lists, one entry per session:
+
+        fileName, nTrials, taskMode (0 Dec / 1 Inc), stairType, frameRateHz,
+        baseCohPC, behavSettings, dotSettings, trials, rightBiasPC,
+        thresholdPC, hitRatePC, dayOfExp
+
+    :param sjDir: path to the subject's folder of .mat files
+    :param elim: certified trials dropped from the start when computing hit rate
+    :param method: threshold method (0, 1, or 2), see calc.threshold
+    :param last: trials averaged in threshold method 1
+    :param lastRev: reversals averaged in threshold method 2
+    """
+    fileList = listSessionFiles(sjDir)
+    # File names start with a 10-character date; each experiment day has one
+    # Inc and one Dec session, so dayOfExp counts pairs of dates.
+    fileListDate = sorted({f.name[:10] for f in fileList})
+
+    sjData = {
+        "fileName": [f.name for f in fileList],
+        "nTrials": [],
+        "taskMode": [],
+        "stairType": [],
+        "frameRateHz": [],
+        "baseCohPC": [],
+        "behavSettings": [],
+        "dotSettings": [],
+        "trials": [],
+        "rightBiasPC": [],
+        "thresholdPC": [],
+        "hitRatePC": [],
+        "dayOfExp": [],
+    }
+
     for fi in fileList:
-        allTrials = read_mat(fi)
-        allTrialsData = allTrials['trials']
-        fileInfo = allTrials['file']
-        
-        nTrials = len(allTrialsData['trial'])
-        sjData['nTrials'].append(nTrials)
-        
-        # Add task mode: 0 for Dec and 1 for Inc
-        sjData['taskMode'].append(allTrialsData['trial'][0]['taskMode'])
-        
-        # Add staircase type: 0 for joint staircase
-        sjData['stairType'].append(allTrialsData['trial'][0]['stairType'])
-        sjData['frameRateHz'].append(fileInfo['frameRateHz']['data'])
-        baseline = allTrialsData['trial'][0]['baseCohPC']
-        sjData['baseCohPC'].append(allTrialsData['trial'][0]['baseCohPC'])
-        
-        # Add behavioral settings
-        sjData['behavSettings'].append({'baseDurMS': allTrialsData['trial'][0]['baseDurMS'],
-                                        'stepDurMS': allTrialsData['trial'][0]['stepDurMS'],
-                                        'revBeforeChange': 6,
-                                        'maxStepPC': abs(allTrialsData['trial'][0]['threshStepsPC']),
-                                        'minStepPC': abs(allTrialsData['trial'][-1]['threshStepsPC']),
-                                        'stepChangeFactor': 0.5})
-        # Add random dot settings
-        dots = allTrialsData['randomDots'][0]
-        sjData['dotSettings'].append({'azimuthDeg': dots['azimuthDeg'],
-                                      'elevationDeg': dots['elevationDeg'],
-                                      'radiusDeg': dots['radiusDeg'],
-                                      'densityDPD': dots['density'],
-                                      'diameterDeg': dots['dotDiameterDeg'],
-                                      'speedDPS': dots['speedDPS'],
-                                      'lifeFrames': dots['lifeFrames']})
-        
-        # Add trial codes - 
-        # :trialCertify: 0 if the trial is qualified
-        # :eotCode: 0 for hits and 1 for misses
-        # :stepDir: should stay the same if the staircase is unidirectional, 0 for Dec and 1 for Inc
-        # :changeLoc: 0 for left and 1 for right
-        sjData['trials'].append({'trialCertify': allTrialsData['trialCertify'],
-                                 'eotCode': allTrialsData['eotCode'],
-                                 'stepDir': [allTrialsData['trial'][tr]['stepDir'] for tr in range(nTrials)],
-                                 'changeLoc': [allTrialsData['trial'][tr]['changeLoc'] for tr in range(nTrials)],
-                                 'stepSizePC': [abs(allTrialsData['trial'][tr]['threshStepsPC']) for tr in range(nTrials)],
-                                 'trialCohPC': [allTrialsData['trial'][tr]['stepCohPC'] for tr in range(nTrials)]})
-       
-        # A trial is "certified" only when trialCertify = 0 and eotCode = 0 or 1
-        se = fileList.index(fi)
-        cert = np.array(sjData['trials'][se]['trialCertify'])
-        eot = np.array(sjData['trials'][se]['eotCode'])
-        testCertify = np.logical_and(cert == 0, np.logical_or(eot == 1, eot == 0))
-        # sjData['trials'][se]['testCertify'] = testCertify
-        
-        # Add right bias: use only the certified trials
-        # right bias = right responses - right changes
-        loc = sjData['trials'][se]['changeLoc']
-        locFiltered = [loc[tr] for tr in range(nTrials) if testCertify[tr]]
-        eotFiltered = [eot[tr] for tr in range(nTrials) if testCertify[tr]]
-        rightChanges = sum(locFiltered)
-        rightResponses = len([1 for tr in range(len(locFiltered)) if locFiltered[tr] + eotFiltered[tr] == 1])
-        sjData['rightBiasPC'].append((rightResponses - rightChanges) / len(locFiltered) * 100)
-        
-        # Add threshold: by default, use the coherence of the last trial as threshold measurement
-        coh = sjData['trials'][se]['trialCohPC']
-        cohFiltered = [coh[tr] for tr in range(nTrials) if testCertify[tr]]
-        sjData['thresholdPC'].append(calc.threshold(cohFiltered, eotFiltered, baseline, method, last, lastRev))
-        
-        
-        # Add hit rate: use only the certified trials, by default, take all certified trials
-        sjData['hitRatePC'].append(calc.hitRate(eotFiltered, elim))
-        
-        # Add the day of experiment session, separately labeled for Inc/Dec sessions
-        sjData['dayOfExp'].append(fileListDate.index(fi[:10]) // 2 + 1)
-        
-    os.chdir(os.getcwd()[:-3])
+        session = loadSession(fi)
+        trials = session["trials"]
+        baseline = session["baseCohPC"]
+
+        for key in (
+            "nTrials",
+            "taskMode",
+            "stairType",
+            "frameRateHz",
+            "baseCohPC",
+            "behavSettings",
+            "dotSettings",
+            "trials",
+        ):
+            sjData[key].append(session[key])
+
+        # A trial is certified only when trialCertify == 0 and eotCode is 0 or 1
+        cert = np.asarray(trials["trialCertify"])
+        eot = np.asarray(trials["eotCode"])
+        certified = np.logical_and(cert == 0, np.isin(eot, [0, 1]))
+
+        locFiltered = [l for l, c in zip(trials["changeLoc"], certified) if c]
+        eotFiltered = [e for e, c in zip(eot, certified) if c]
+        cohFiltered = [k for k, c in zip(trials["trialCohPC"], certified) if c]
+
+        sjData["rightBiasPC"].append(rightBias(locFiltered, eotFiltered))
+        sjData["thresholdPC"].append(
+            calc.threshold(cohFiltered, eotFiltered, baseline, method, last, lastRev)
+        )
+        sjData["hitRatePC"].append(calc.hitRate(eotFiltered, elim))
+        sjData["dayOfExp"].append(fileListDate.index(fi.name[:10]) // 2 + 1)
+
     return sjData
 
 
-def saveDict(data, fileName):
+def loadSession(matFile):
     """
-    Exports the data dictionary to a .json file
-    Make sure the working directory is switched to the data output folder
-    :param data: the input dictionary
-    :param fileName: the customized file name without extension
+    Reads one session .mat file into a plain dictionary (settings + trial
+    arrays). No filtering or statistics are applied here.
     """
-    json.dump(data, open(fileName + '.json', 'w' ))
+    allTrials = read_mat(str(matFile))
+    data = allTrials["trials"]
+    fileInfo = allTrials["file"]
+    trialList = data["trial"]
+    nTrials = len(trialList)
+    first = trialList[0]
+
+    return {
+        "fileName": Path(matFile).name,
+        "nTrials": nTrials,
+        # 0 for Dec and 1 for Inc
+        "taskMode": first["taskMode"],
+        # 0 for joint staircase
+        "stairType": first["stairType"],
+        "frameRateHz": fileInfo["frameRateHz"]["data"],
+        "baseCohPC": first["baseCohPC"],
+        "behavSettings": {
+            "baseDurMS": first["baseDurMS"],
+            "stepDurMS": first["stepDurMS"],
+            # Not stored in the .mat file; these were the fixed values used
+            # for every session of the 2022 human experiment.
+            "revBeforeChange": 6,
+            "maxStepPC": abs(first["threshStepsPC"]),
+            "minStepPC": abs(trialList[-1]["threshStepsPC"]),
+            "stepChangeFactor": 0.5,
+        },
+        "dotSettings": _dotSettings(data["randomDots"][0]),
+        # trialCertify: 0 if the trial is qualified
+        # eotCode: 0 for hits and 1 for misses
+        # stepDir: 0 for Dec and 1 for Inc (constant within a unidirectional staircase)
+        # changeLoc: 0 for left and 1 for right
+        "trials": {
+            "trialCertify": data["trialCertify"],
+            "eotCode": data["eotCode"],
+            "stepDir": [tr["stepDir"] for tr in trialList],
+            "changeLoc": [tr["changeLoc"] for tr in trialList],
+            "stepSizePC": [abs(tr["threshStepsPC"]) for tr in trialList],
+            "trialCohPC": [tr["stepCohPC"] for tr in trialList],
+        },
+    }
+
+
+def _dotSettings(dots):
+    return {
+        "azimuthDeg": dots["azimuthDeg"],
+        "elevationDeg": dots["elevationDeg"],
+        "radiusDeg": dots["radiusDeg"],
+        "densityDPD": dots["density"],
+        "diameterDeg": dots["dotDiameterDeg"],
+        "speedDPS": dots["speedDPS"],
+        "lifeFrames": dots["lifeFrames"],
+    }
+
+
+def rightBias(locFiltered, eotFiltered):
+    """
+    Right-side response bias (percent) over certified trials:
+    (right responses - right changes) / n trials * 100.
+
+    A hit (eot 0) means the response matched changeLoc; a miss (eot 1)
+    means the subject chose the other side. So the response is "right"
+    when changeLoc + eot == 1.
+    """
+    if len(locFiltered) == 0:
+        raise ValueError("no certified trials")
+    rightChanges = sum(locFiltered)
+    rightResponses = sum(1 for l, e in zip(locFiltered, eotFiltered) if l + e == 1)
+    return (rightResponses - rightChanges) / len(locFiltered) * 100
+
+
+def saveDict(data, filePath):
+    """
+    Writes the data dictionary to JSON. numpy arrays are converted to lists.
+
+    :param data: dictionary to save
+    :param filePath: output path; '.json' is added if missing
+    """
+    filePath = Path(filePath)
+    if filePath.suffix != ".json":
+        filePath = filePath.with_suffix(".json")
+    with open(filePath, "w") as f:
+        json.dump(data, f, default=_jsonDefault)
+    return filePath
+
+
+def loadDict(filePath):
+    """Reads a dictionary previously written by saveDict."""
+    with open(filePath) as f:
+        return json.load(f)
+
+
+def _jsonDefault(obj):
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    if isinstance(obj, np.generic):
+        return obj.item()
+    raise TypeError("cannot serialize %r" % type(obj))

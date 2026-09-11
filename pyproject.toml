@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "IDPsych"
+version = "2.0.0"
+description = "Load, summarize, and plot human psychophysics data from the motion-coherence increment/decrement detection task"
+authors = [{ name = "Lai Wei", email = "laiwei@uchicago.edu" }]
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.9"
+dependencies = [
+    "numpy",
+    "scipy",
+    "matplotlib",
+    "seaborn",
+    "pymatreader",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "jupyter"]
+
+[tool.setuptools.packages.find]
+include = ["IDPsych*"]
